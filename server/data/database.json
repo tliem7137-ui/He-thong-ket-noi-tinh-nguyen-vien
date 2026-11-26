@@ -579,7 +579,7 @@
       "title": "Đăng ký đã được duyệt!",
       "message": "Tổ chức Green Life Vietnam đã duyệt đăng ký của bạn cho hoạt động: \"Chiến Dịch Làm Sạch Biển Vũng Tàu\". Hãy xác nhận tham gia trước ngày 26/11.",
       "type": "success",
-      "read": false,
+      "read": true,
       "createdAt": "2026-11-20T10:30"
     },
     {

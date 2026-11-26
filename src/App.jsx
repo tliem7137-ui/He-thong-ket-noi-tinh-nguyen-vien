@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { AppProvider, useApp } from './context/AppContext';
+import React, { useState, useEffect, useCallback } from 'react';
+import { AppProvider } from './context/AppContext';
+import { useApp } from './context/useApp';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { ToastContainer } from './components/ToastContainer';
@@ -15,83 +16,99 @@ import { VolunteerDashboard } from './views/volunteer/VolunteerDashboard';
 import { OrgDashboard } from './views/organization/OrgDashboard';
 import { AdminDashboard } from './views/admin/AdminDashboard';
 
+const getDefaultTabForRole = (role) => {
+  if (role === 'admin') return 'admin_dashboard';
+  if (role === 'organization') return 'org_dashboard';
+  if (role === 'volunteer') return 'dashboard';
+  return 'home';
+};
+
 const MainApp = () => {
-  const { userRole } = useApp();
+  const { userRole, activities } = useApp();
 
-  // Navigation tab state
-  const [activeTab, setActiveTab] = useState('home');
+  // Derive default tab automatically when role changes without cascading setState in effect
+  const [tabState, setTabState] = useState(() => ({
+    role: userRole,
+    tab: getDefaultTabForRole(userRole)
+  }));
+  const activeTab = tabState.role === userRole ? tabState.tab : getDefaultTabForRole(userRole);
+  const setActiveTab = useCallback(
+    (tab) => {
+      setTabState({ role: userRole, tab });
+    },
+    [userRole]
+  );
 
-  // Automatically route to appropriate dashboard when role changes
-  useEffect(() => {
-    if (userRole === 'admin') {
-      setActiveTab('admin_dashboard');
-    } else if (userRole === 'organization') {
-      setActiveTab('org_dashboard');
-    } else if (userRole === 'volunteer') {
-      setActiveTab('dashboard');
-    } else if (userRole === 'guest') {
-      setActiveTab('home');
-    }
-  }, [userRole]);
-
-  // Modals state
-  const [loginModalOpen, setLoginModalOpen] = useState(false);
-  const [adminLoginModalOpen, setAdminLoginModalOpen] = useState(false);
-  const [registerModalOpen, setRegisterModalOpen] = useState(false);
+  // Modals state - initialized from current URL path for guests
+  const [loginModalOpen, setLoginModalOpen] = useState(
+    () => userRole === 'guest' && window.location.pathname === '/login'
+  );
+  const [adminLoginModalOpen, setAdminLoginModalOpen] = useState(
+    () => userRole === 'guest' && window.location.pathname === '/admin/login'
+  );
+  const [registerModalOpen, setRegisterModalOpen] = useState(
+    () => userRole === 'guest' && window.location.pathname === '/register'
+  );
   const [createActivityModalOpen, setCreateActivityModalOpen] = useState(false);
-  const [selectedActivity, setSelectedActivity] = useState(null);
+  const [editingActivity, setEditingActivity] = useState(null);
 
-  // URL Path Routing for /login, /register, and /admin/login
+  const openCreateActivityModal = () => {
+    setEditingActivity(null);
+    setCreateActivityModalOpen(true);
+  };
+
+  const openEditActivityModal = (act) => {
+    setEditingActivity(act);
+    setCreateActivityModalOpen(true);
+  };
+
+  const closeActivityModal = () => {
+    setCreateActivityModalOpen(false);
+    setEditingActivity(null);
+  };
+
+  // Store only activity ID so modal always reflects live activity state
+  const [selectedActivityId, setSelectedActivityId] = useState(null);
+  const selectedActivity = activities.find((a) => a.id === selectedActivityId) || null;
+
+  // Clean auth URLs after login & listen to browser back/forward navigation
   useEffect(() => {
-    const handleUrlRoute = () => {
+    if (userRole !== 'guest') {
       const path = window.location.pathname;
+      if (path === '/login' || path === '/register' || path === '/admin/login') {
+        window.history.replaceState({}, '', '/');
+      }
+    }
 
-      // 1. Nếu người dùng ĐÃ ĐĂNG NHẬP mà truy cập /login, /register hoặc /admin/login:
-      // Tự động chuyển hướng về Bảng điều khiển (Dashboard) tương ứng và dọn sạch URL
+    const handlePopState = () => {
+      const path = window.location.pathname;
       if (userRole !== 'guest') {
         if (path === '/login' || path === '/register' || path === '/admin/login') {
+          window.history.replaceState({}, '', '/');
           setLoginModalOpen(false);
           setRegisterModalOpen(false);
           setAdminLoginModalOpen(false);
-          window.history.replaceState({}, '', '/');
-
-          if (userRole === 'volunteer') {
-            setActiveTab('dashboard');
-          } else if (userRole === 'organization') {
-            setActiveTab('org_dashboard');
-          } else if (userRole === 'admin') {
-            setActiveTab('admin_dashboard');
-          }
-          return;
+          setActiveTab(getDefaultTabForRole(userRole));
         }
+        return;
       }
 
-      // 2. Nếu là khách chưa đăng nhập (guest):
-      if (path === '/admin/login') {
-        setAdminLoginModalOpen(true);
-        setLoginModalOpen(false);
-        setRegisterModalOpen(false);
-      } else if (path === '/login') {
-        setLoginModalOpen(true);
-        setAdminLoginModalOpen(false);
-        setRegisterModalOpen(false);
-      } else if (path === '/register') {
-        setRegisterModalOpen(true);
-        setLoginModalOpen(false);
-        setAdminLoginModalOpen(false);
-      }
+      setAdminLoginModalOpen(path === '/admin/login');
+      setLoginModalOpen(path === '/login');
+      setRegisterModalOpen(path === '/register');
     };
 
-    handleUrlRoute();
-    window.addEventListener('popstate', handleUrlRoute);
-    return () => window.removeEventListener('popstate', handleUrlRoute);
-  }, [userRole]);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [userRole, setActiveTab]);
+
+  const effectiveLoginOpen = userRole === 'guest' && loginModalOpen;
+  const effectiveRegisterOpen = userRole === 'guest' && registerModalOpen;
+  const effectiveAdminLoginOpen = userRole === 'guest' && adminLoginModalOpen;
 
   const openUserLogin = () => {
     if (userRole !== 'guest') {
-      if (userRole === 'volunteer') setActiveTab('dashboard');
-      else if (userRole === 'organization') setActiveTab('org_dashboard');
-      else if (userRole === 'admin') setActiveTab('admin_dashboard');
+      setActiveTab(getDefaultTabForRole(userRole));
       return;
     }
     if (window.location.pathname !== '/login') {
@@ -110,9 +127,7 @@ const MainApp = () => {
 
   const openUserRegister = () => {
     if (userRole !== 'guest') {
-      if (userRole === 'volunteer') setActiveTab('dashboard');
-      else if (userRole === 'organization') setActiveTab('org_dashboard');
-      else if (userRole === 'admin') setActiveTab('admin_dashboard');
+      setActiveTab(getDefaultTabForRole(userRole));
       return;
     }
     if (window.location.pathname !== '/register') {
@@ -178,6 +193,8 @@ const MainApp = () => {
         return 'categories_locations';
       case 'admin_feedback':
         return 'feedback';
+      case 'admin_broadcast':
+        return 'broadcast';
       case 'admin_settings':
         return 'settings';
 
@@ -222,85 +239,107 @@ const MainApp = () => {
     }
   };
 
+  const handleSelectActivity = (act) => {
+    setSelectedActivityId(act?.id || null);
+  };
+
+  const isGuestView =
+    userRole === 'guest' ||
+    activeTab === 'home' ||
+    activeTab === 'explore' ||
+    activeTab === 'organizations' ||
+    activeTab === 'about';
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 antialiased font-sans">
+    <div
+      className={`min-h-screen flex flex-col text-[#1c1c1c] antialiased font-sans ${
+        isGuestView ? 'bg-white' : 'bg-[#f7f9f7]'
+      }`}
+    >
       {/* 1. Main Navigation Bar */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenLogin={openUserLogin}
         onOpenRegister={openUserRegister}
-        onOpenCreateActivity={() => setCreateActivityModalOpen(true)}
+        onOpenCreateActivity={openCreateActivityModal}
       />
 
       {/* 2. Main Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        {/* If user is Guest or clicks Home/Explore */}
-        {userRole === 'guest' || activeTab === 'home' || activeTab === 'explore' || activeTab === 'organizations' || activeTab === 'about' ? (
+      <main
+        className={
+          isGuestView
+            ? 'flex-1 w-full'
+            : 'flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-8'
+        }
+      >
+        {isGuestView ? (
           <HomeGuest
-            onSelectActivity={(act) => setSelectedActivity(act)}
+            activeTab={activeTab}
+            onSelectActivity={handleSelectActivity}
             onOpenRegister={openUserRegister}
-            onOpenLogin={openUserLogin}
           />
         ) : userRole === 'volunteer' ? (
           <VolunteerDashboard
             activeSubTab={getSubTab(activeTab)}
             setActiveSubTab={handleSubTabChange}
-            onSelectActivity={(act) => setSelectedActivity(act)}
+            onSelectActivity={handleSelectActivity}
           />
         ) : userRole === 'organization' ? (
           <OrgDashboard
             activeSubTab={getSubTab(activeTab)}
             setActiveSubTab={handleSubTabChange}
-            onOpenCreateActivity={() => setCreateActivityModalOpen(true)}
-            onSelectActivity={(act) => setSelectedActivity(act)}
+            onOpenCreateActivity={openCreateActivityModal}
+            onEditActivity={openEditActivityModal}
+            onSelectActivity={handleSelectActivity}
           />
         ) : userRole === 'admin' ? (
           <AdminDashboard
             activeSubTab={getSubTab(activeTab)}
             setActiveSubTab={handleSubTabChange}
-            onSelectActivity={(act) => setSelectedActivity(act)}
+            onSelectActivity={handleSelectActivity}
           />
         ) : null}
       </main>
 
-      {/* 4. Modals */}
+      {/* 3. Modals */}
       <LoginModal
-        isOpen={loginModalOpen}
+        isOpen={effectiveLoginOpen}
         onClose={closeUserLogin}
         onSwitchToRegister={openUserRegister}
       />
 
       <RegisterModal
-        isOpen={registerModalOpen}
+        isOpen={effectiveRegisterOpen}
         onClose={closeUserRegister}
         onSwitchToLogin={openUserLogin}
       />
 
       <OrgCreateActivityModal
         isOpen={createActivityModalOpen}
-        onClose={() => setCreateActivityModalOpen(false)}
+        editingActivity={editingActivity}
+        onClose={closeActivityModal}
       />
 
       <ActivityDetailModal
         activity={selectedActivity}
         isOpen={!!selectedActivity}
-        onClose={() => setSelectedActivity(null)}
+        onClose={() => setSelectedActivityId(null)}
         onOpenLogin={() => {
-          setSelectedActivity(null);
+          setSelectedActivityId(null);
           openUserLogin();
         }}
       />
 
       <AdminLoginModal
-        isOpen={adminLoginModalOpen}
+        isOpen={effectiveAdminLoginOpen}
         onClose={closeAdminLogin}
       />
 
-      {/* 5. Toasts Container */}
+      {/* 4. Toasts Container */}
       <ToastContainer />
 
-      {/* 6. Footer (Không còn nút Admin ở footer để đảm bảo an toàn) */}
+      {/* 5. Footer */}
       <Footer />
     </div>
   );

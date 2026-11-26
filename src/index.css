@@ -1,23 +1,218 @@
 @import "tailwindcss";
 
+:root {
+  --vv-primary: #0d530e;
+  --vv-primary-hover: #0a420b;
+  --vv-forest-mid: #1b5e3a;
+  --vv-forest-soft: #2d5543;
+  --vv-sage: #437b62;
+  --vv-sage-light: #609f84;
+  --vv-mint-soft: #e8f2ed;
+  --vv-surface: #f7f9f7;
+  --vv-gold: #eaae1a;
+  --vv-gold-dark: #d49b11;
+  --vv-gold-light: #f6c453;
+  --vv-ink: #1c1c1c;
+  --vv-heading-dark: #1f2d20;
+  --vv-muted: #5a6b5c;
+  --vv-border: rgba(56, 142, 60, 0.22);
+  --vv-input-border: #d2d2d7;
+}
+
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-800 antialiased font-sans selection:bg-emerald-500 selection:text-white;
+    background-color: #ffffff;
+    color: var(--vv-ink);
+    font-family: 'Be Vietnam Pro', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+
+  ::selection {
+    background-color: #0d530e;
+    color: #ffffff;
+  }
+}
+
+/* Volunteer Vietnam signature backgrounds */
+.vv-hero-scrim {
+  background: linear-gradient(
+    180deg,
+    rgba(10, 48, 12, 0.84) 0%,
+    rgba(13, 83, 14, 0.72) 60%,
+    rgba(10, 48, 12, 0.78) 100%
+  );
+}
+
+@media (min-width: 1024px) {
+  .vv-hero-scrim {
+    background: linear-gradient(
+      -100deg,
+      rgba(13, 83, 14, 0.06) 0%,
+      rgba(13, 83, 14, 0.14) 37%,
+      rgba(13, 83, 14, 0.76) 37.2%,
+      rgba(10, 56, 12, 0.86) 100%
+    );
+  }
+}
+
+.vv-section-mint {
+  background: linear-gradient(135deg, #f5f9f7 0%, #e8f2ed 100%);
+}
+
+.vv-cta-banner {
+  background: linear-gradient(135deg, #0d530e 0%, #1b5e3a 55%, #2a5542 100%);
+}
+
+.vv-footer-bg {
+  background: radial-gradient(circle at 15% 0%, #1c3d2a 0%, #0d1f16 55%, #0a1710 100%);
+}
+
+.vv-footer-accent {
+  background: linear-gradient(90deg, transparent 0%, #eaae1a 50%, transparent 100%);
+}
+
+.vv-gold-underline {
+  background: linear-gradient(90deg, #eaae1a, #f6c453);
+}
+
+/* Signature card elevation */
+.vv-stat-card {
+  background-color: #ffffff;
+  border: 1px solid rgba(56, 142, 60, 0.25);
+  border-radius: 16px;
+  box-shadow: 0 12px 26px rgba(56, 142, 60, 0.12);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.vv-stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 32px rgba(56, 142, 60, 0.18);
+  border-color: rgba(13, 83, 14, 0.35);
+}
+
+.vv-card {
+  background-color: #ffffff;
+  border: 1px solid rgba(56, 142, 60, 0.18);
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(13, 83, 14, 0.06);
+}
+
+/* Apple-clean Apply-page style input */
+.vv-input {
+  background-color: #fbfbfd;
+  border: 1.5px solid #d2d2d7;
+  border-radius: 12px;
+  color: #1c1c1c;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.vv-input:focus {
+  outline: none;
+  background-color: #ffffff;
+  border-color: #437b62;
+  box-shadow: 0 0 0 4px rgba(67, 123, 98, 0.15);
+}
+
+/* Pill buttons matching Volunteer Vietnam */
+.vv-btn-primary {
+  background: linear-gradient(135deg, #0d530e 0%, #2d5543 100%);
+  color: #ffffff;
+  border-radius: 9999px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.25s ease;
+}
+
+.vv-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #eaae1a 0%, #d49b11 100%);
+  color: #14251c;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(234, 174, 26, 0.3);
+}
+
+.vv-btn-forest {
+  background: linear-gradient(135deg, #0d530e 0%, #1b5e3a 100%);
+  color: #ffffff;
+  border-radius: 9999px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.vv-btn-forest:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(13, 83, 14, 0.25);
+}
+
+.vv-btn-gold {
+  background: linear-gradient(135deg, #eaae1a 0%, #d49b11 100%);
+  color: #14251c;
+  border-radius: 9999px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.vv-btn-gold:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(234, 174, 26, 0.38);
+}
+
+.vv-btn-outline {
+  background-color: #ffffff;
+  color: #0d530e;
+  border: 2px solid #0d530e;
+  border-radius: 9999px;
+  transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.vv-btn-outline:hover:not(:disabled) {
+  background-color: #0d530e;
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(13, 83, 14, 0.2);
+}
+
+/* Smooth UI animations */
+@keyframes scaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-scale-up {
+  animation: scaleUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #f5f9f7;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #b7cec2;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #437b62;
 }

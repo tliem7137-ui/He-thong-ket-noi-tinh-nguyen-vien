@@ -1,6 +1,6 @@
 import React from 'react';
-import { useApp } from '../context/AppContext';
-import { Calendar, MapPin, Users, Clock, Award, ShieldCheck, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useApp } from '../context/useApp';
+import { Calendar, MapPin, Users, Award, ShieldCheck, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export const ActivityCard = ({ activity, onSelect }) => {
   const { userRole, currentUser, registrations } = useApp();
@@ -15,31 +15,31 @@ export const ActivityCard = ({ activity, onSelect }) => {
   const getStatusBadge = () => {
     if (activity.status === 'completed') {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-          <CheckCircle2 className="w-3 h-3 text-slate-500" />
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-white/95 text-[#5a6b5c] border border-[#d2d2d7] shadow-xs">
+          <CheckCircle2 className="w-3 h-3 text-[#5a6b5c]" />
           Đã Hoàn Thành
         </span>
       );
     }
     if (activity.status === 'full' || activity.volunteersRegistered >= activity.volunteersNeeded) {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-          <Users className="w-3 h-3 text-amber-500" />
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[#fef8e6] text-[#8a6100] border border-[#eaae1a]/50 shadow-xs">
+          <Users className="w-3 h-3 text-[#d49b11]" />
           Đã Đủ Số Lượng
         </span>
       );
     }
     if (activity.approvalStatus === 'pending') {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-          <AlertCircle className="w-3 h-3" />
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[#fef8e6] text-[#8a6100] border border-[#eaae1a]/50 shadow-xs">
+          <AlertCircle className="w-3 h-3 text-[#d49b11]" />
           Chờ Admin Duyệt
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[#e8f2ed]/95 text-[#0d530e] border border-[#0d530e]/20 shadow-xs">
+        <span className="w-1.5 h-1.5 rounded-full bg-[#0d530e] animate-pulse"></span>
         Đang Tuyển TNV
       </span>
     );
@@ -55,60 +55,59 @@ export const ActivityCard = ({ activity, onSelect }) => {
   };
 
   return (
-    <div className="group bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-xl hover:border-emerald-300 transition-all duration-300 flex flex-col overflow-hidden">
-      {/* Banner with Badges */}
-      <div className="relative h-48 overflow-hidden bg-slate-100">
+    <div className="group vv-card hover:shadow-[0_16px_34px_rgba(13,83,14,0.14)] hover:border-[#0d530e]/35 hover:-translate-y-1 transition-all duration-300 flex flex-col overflow-hidden">
+      {/* 3:2 Banner with Badges matching Volunteer Vietnam Program Cards */}
+      <div className="relative aspect-[3/2] overflow-hidden bg-[#e8f2ed]">
         <img
           src={activity.banner || 'https://images.unsplash.com/photo-1559027615-cd4628902d4a?w=800&auto=format&fit=crop&q=80'}
           alt={activity.title}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-900/70 via-transparent to-black/20" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0a2d0b]/80 via-transparent to-black/15" />
 
-        <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
-          <span className="bg-white/90 backdrop-blur-md text-emerald-800 text-[11px] font-bold px-2.5 py-1 rounded-lg shadow-xs">
+        <div className="absolute top-3 left-3 right-3 flex items-start justify-between gap-2">
+          <span className="bg-white/95 backdrop-blur-xs text-[#0d530e] text-[11px] font-bold px-2.5 py-1 rounded-full shadow-xs truncate min-w-0">
             {activity.categoryName}
           </span>
-          <span className="bg-emerald-600/90 backdrop-blur-md text-white text-[11px] font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-xs">
-            <Award className="w-3 h-3 text-amber-300" />
+          <div className="shrink-0">
+            {getStatusBadge()}
+          </div>
+        </div>
+
+        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2 text-white text-xs">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <ShieldCheck className="w-3.5 h-3.5 text-[#f6c453] shrink-0" />
+            <span className="font-medium truncate drop-shadow-xs">{activity.organizationName}</span>
+          </div>
+          <span className="bg-[#eaae1a] text-[#14251c] text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs shrink-0">
+            <Award className="w-3 h-3" />
             +{activity.hoursEarned}h Công
           </span>
-        </div>
-
-        <div className="absolute top-3 right-3">
-          {getStatusBadge()}
-        </div>
-
-        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-white text-xs">
-          <div className="flex items-center gap-1.5 truncate">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span className="font-medium truncate drop-shadow-sm">{activity.organizationName}</span>
-          </div>
         </div>
       </div>
 
       {/* Body content */}
-      <div className="p-4 flex-1 flex flex-col justify-between">
+      <div className="p-5 flex-1 flex flex-col justify-between">
         <div>
           <h3
             onClick={() => onSelect(activity)}
-            className="font-bold text-slate-800 text-base leading-snug hover:text-emerald-600 transition-colors cursor-pointer line-clamp-2 mb-2"
+            className="font-semibold text-[#0d530e] text-base leading-snug group-hover:text-[#d49b11] transition-colors cursor-pointer line-clamp-2 mb-2"
           >
             {activity.title}
           </h3>
 
-          <p className="text-xs text-slate-500 line-clamp-2 mb-3 leading-relaxed">
+          <p className="text-xs text-[#555555] line-clamp-2 mb-3.5 leading-relaxed">
             {activity.description}
           </p>
 
           {/* Meta details */}
-          <div className="space-y-1.5 text-xs text-slate-600 mb-4 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100">
+          <div className="space-y-1.5 text-xs text-[#445447] mb-4 bg-[#f7f9f7] p-3 rounded-xl border border-[#e8f2ed]">
             <div className="flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <Calendar className="w-3.5 h-3.5 text-[#0d530e] shrink-0" />
               <span>{formattedDate(activity.startDate)} {activity.endDate && `đến ${formattedDate(activity.endDate)}`}</span>
             </div>
             <div className="flex items-center gap-2">
-              <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+              <MapPin className="w-3.5 h-3.5 text-[#d49b11] shrink-0" />
               <span className="truncate">{activity.locationName} - {activity.specificAddress}</span>
             </div>
           </div>
@@ -117,14 +116,14 @@ export const ActivityCard = ({ activity, onSelect }) => {
         <div>
           {/* Progress bar */}
           <div className="mb-4">
-            <div className="flex justify-between text-[11px] font-medium text-slate-600 mb-1">
-              <span>Đã đăng ký: <strong>{activity.volunteersRegistered}/{activity.volunteersNeeded} TNV</strong></span>
-              <span>{progressPercent}%</span>
+            <div className="flex justify-between text-[11px] font-medium text-[#5a6b5c] mb-1.5">
+              <span>Đã đăng ký: <strong className="text-[#1f2d20]">{activity.volunteersRegistered}/{activity.volunteersNeeded} TNV</strong></span>
+              <span className="font-semibold text-[#0d530e]">{progressPercent}%</span>
             </div>
-            <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div className="w-full h-1.5 bg-[#e8f2ed] rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
-                  progressPercent >= 100 ? 'bg-amber-500' : 'bg-emerald-500'
+                  progressPercent >= 100 ? 'bg-[#eaae1a]' : 'bg-[#0d530e]'
                 }`}
                 style={{ width: `${progressPercent}%` }}
               />
@@ -132,24 +131,24 @@ export const ActivityCard = ({ activity, onSelect }) => {
           </div>
 
           {/* Action Footer */}
-          <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+          <div className="flex items-center justify-between gap-2 pt-3 border-t border-[#e8f2ed]">
             {myReg ? (
-              <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg ${
-                myReg.status === 'approved' ? 'bg-emerald-100 text-emerald-800' :
-                myReg.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
+              <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${
+                myReg.status === 'approved' ? 'bg-[#e8f2ed] text-[#0d530e]' :
+                myReg.status === 'pending' ? 'bg-[#fef8e6] text-[#8a6100]' : 'bg-rose-100 text-rose-800'
               }`}>
                 {myReg.status === 'approved' ? '✓ Đã được duyệt' :
                  myReg.status === 'pending' ? '⏳ Chờ duyệt' : 'Đã từ chối'}
               </span>
             ) : (
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-[#5a6b5c]">
                 Tuyển {activity.volunteersNeeded} người
               </span>
             )}
 
             <button
               onClick={() => onSelect(activity)}
-              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white transition-all shadow-2xs hover:shadow-md cursor-pointer"
+              className="px-4 py-1.5 rounded-full text-xs font-bold border-[1.5px] border-[#0d530e] text-[#0d530e] bg-white hover:bg-[#0d530e] hover:text-white transition-all cursor-pointer"
             >
               Xem Chi Tiết
             </button>
