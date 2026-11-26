@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { useApp } from '../context/AppContext';
+import React, { useState, useCallback } from 'react';
+import { useApp } from '../context/useApp';
+import { useModalClose } from '../hooks/useModalClose';
 import {
   X,
   Calendar,
@@ -8,13 +9,10 @@ import {
   Award,
   ShieldCheck,
   CheckCircle2,
-  Clock,
   Sparkles,
   Star,
   Send,
-  AlertTriangle,
-  Building,
-  Heart
+  AlertTriangle
 } from 'lucide-react';
 
 export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) => {
@@ -30,9 +28,21 @@ export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) 
   } = useApp();
 
   const [message, setMessage] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [showReviewForm, setShowReviewForm] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+
+  const handleClose = useCallback(() => {
+    setActionError('');
+    setReviewError('');
+    setShowReviewForm(false);
+    onClose();
+  }, [onClose]);
+
+  const { handleBackdropClick } = useModalClose(isOpen && !!activity, handleClose);
 
   if (!isOpen || !activity) return null;
 
@@ -50,68 +60,96 @@ export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) 
 
   const progressPercent = Math.min(100, Math.round((activity.volunteersRegistered / activity.volunteersNeeded) * 100));
 
-  const handleRegister = () => {
+  const getActivityStatusLabel = (status) => {
+    switch (status) {
+      case 'recruiting':
+        return { text: 'Đang mở đăng ký', cls: 'bg-[#e8f2ed] text-[#0d530e] border-[#0d530e]/25' };
+      case 'completed':
+        return { text: 'Đã kết thúc', cls: 'bg-[#f5f9f7] text-[#5a6b5c] border-[#d2d2d7]' };
+      case 'cancelled':
+        return { text: 'Đã bị hủy', cls: 'bg-rose-50 text-rose-700 border-rose-200' };
+      case 'pending_approval':
+        return { text: 'Chờ Admin duyệt', cls: 'bg-[#fef8e6] text-[#8a6100] border-[#eaae1a]/45' };
+      case 'rejected':
+        return { text: 'Bị từ chối', cls: 'bg-rose-50 text-rose-700 border-rose-200' };
+      default:
+        return { text: 'Đã đủ số lượng', cls: 'bg-[#fef8e6] text-[#8a6100] border-[#eaae1a]/45' };
+    }
+  };
+  const statusInfo = getActivityStatusLabel(activity.status);
+
+  const handleRegister = async () => {
     if (userRole === 'guest') {
       onOpenLogin();
       return;
     }
-    const res = registerForActivity(activity.id, message);
-    if (res.success) {
+    setActionError('');
+    setSubmitting(true);
+    const res = await registerForActivity(activity.id, message);
+    setSubmitting(false);
+    if (res?.success) {
       setMessage('');
+    } else if (res?.error) {
+      setActionError(res.error);
     }
   };
 
-  const handleReviewSubmit = (e) => {
+  const handleReviewSubmit = async (e) => {
     e.preventDefault();
     if (!reviewComment.trim()) return;
-    const res = submitActivityReview(activity.id, reviewRating, reviewComment);
-    if (res.success) {
+    setReviewError('');
+    setSubmitting(true);
+    const res = await submitActivityReview(activity.id, reviewRating, reviewComment);
+    setSubmitting(false);
+    if (res?.success) {
       setShowReviewForm(false);
       setReviewComment('');
+    } else if (res?.error) {
+      setReviewError(res.error);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-scale-up my-auto">
+    <div onClick={handleBackdropClick} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0d1f16]/65 backdrop-blur-xs overflow-y-auto">
+      <div className="bg-white rounded-3xl shadow-[0_24px_60px_rgba(13,31,22,0.3)] border border-[#0d530e]/15 max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-scale-up my-auto">
         {/* Banner with close button */}
-        <div className="relative h-60 shrink-0 bg-slate-900">
+        <div className="relative h-60 shrink-0 bg-[#0d1f16]">
           <img
             src={activity.banner || 'https://images.unsplash.com/photo-1559027615-cd4628902d4a?w=800&auto=format&fit=crop&q=80'}
             alt={activity.title}
-            className="w-full h-full object-cover opacity-85"
+            className="w-full h-full object-cover opacity-90"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0a2d0b] via-[#0d530e]/45 to-transparent" />
 
           <button
-            onClick={onClose}
-            className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center backdrop-blur-md transition-all cursor-pointer"
+            onClick={handleClose}
+            className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 hover:bg-black/65 text-white flex items-center justify-center backdrop-blur-xs transition-all cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
 
-          <div className="absolute top-4 left-4 flex gap-2">
-            <span className="bg-emerald-600/90 text-white font-bold text-xs px-3 py-1 rounded-full backdrop-blur-md">
+          <div className="absolute top-4 left-4 flex flex-wrap gap-2">
+            <span className="bg-white/95 text-[#0d530e] font-bold text-xs px-3.5 py-1 rounded-full shadow-xs">
               {activity.categoryName}
             </span>
-            <span className="bg-amber-500/90 text-white font-bold text-xs px-3 py-1 rounded-full flex items-center gap-1 backdrop-blur-md">
+            <span className="bg-[#eaae1a] text-[#14251c] font-bold text-xs px-3.5 py-1 rounded-full flex items-center gap-1 shadow-xs">
               <Award className="w-3.5 h-3.5" />
               +{activity.hoursEarned} Giờ công chứng nhận
             </span>
           </div>
 
           <div className="absolute bottom-4 left-6 right-6 text-white">
-            <div className="flex items-center gap-2 text-xs text-emerald-300 font-medium mb-1">
-              <ShieldCheck className="w-4 h-4" />
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[#f6c453] font-medium mb-1">
+              <ShieldCheck className="w-4 h-4 text-[#eaae1a]" />
               <span>{activity.organizationName}</span>
               {avgRating && (
-                <span className="flex items-center gap-1 bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded-md text-[11px] font-bold">
-                  <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                <span className="flex items-center gap-1 bg-white/15 text-[#f6c453] px-2.5 py-0.5 rounded-full text-[11px] font-bold backdrop-blur-xs">
+                  <Star className="w-3 h-3 fill-[#eaae1a] text-[#eaae1a]" />
                   {avgRating} ({activityReviews.length} đánh giá)
                 </span>
               )}
             </div>
-            <h2 className="text-xl sm:text-2xl font-bold leading-snug drop-shadow-md">
+            <h2 className="text-xl sm:text-2xl font-bold leading-snug drop-shadow-xs">
               {activity.title}
             </h2>
           </div>
@@ -120,16 +158,16 @@ export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) 
         {/* Content Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
           {/* Progress bar info */}
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="bg-[#f7f9f7] p-4 rounded-2xl border border-[#0d530e]/15 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="w-full sm:w-2/3">
-              <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1.5">
+              <div className="flex justify-between text-xs font-semibold text-[#1f2d20] mb-1.5">
                 <span>Tiến độ tuyển tình nguyện viên:</span>
-                <span className="text-emerald-700">{activity.volunteersRegistered}/{activity.volunteersNeeded} người ({progressPercent}%)</span>
+                <span className="text-[#0d530e]">{activity.volunteersRegistered}/{activity.volunteersNeeded} người ({progressPercent}%)</span>
               </div>
-              <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+              <div className="w-full h-2.5 bg-[#e8f2ed] rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
-                    progressPercent >= 100 ? 'bg-amber-500' : 'bg-emerald-600'
+                    progressPercent >= 100 ? 'bg-[#eaae1a]' : 'bg-[#0d530e]'
                   }`}
                   style={{ width: `${progressPercent}%` }}
                 />
@@ -137,105 +175,98 @@ export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) 
             </div>
 
             <div className="flex items-center gap-2 text-xs font-semibold">
-              <span className={`px-3 py-1.5 rounded-xl border ${
-                activity.status === 'recruiting'
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : activity.status === 'completed'
-                  ? 'bg-slate-100 text-slate-700 border-slate-200'
-                  : 'bg-amber-50 text-amber-700 border-amber-200'
-              }`}>
-                {activity.status === 'recruiting' ? 'Đang mở đăng ký' :
-                 activity.status === 'completed' ? 'Đã kết thúc' : 'Đã đủ số lượng'}
+              <span className={`px-3.5 py-1.5 rounded-full border ${statusInfo.cls}`}>
+                {statusInfo.text}
               </span>
             </div>
           </div>
 
           {/* Key metadata grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-50/80 border border-slate-100">
-              <Calendar className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-[#f7f9f7] border border-[#e8f2ed]">
+              <Calendar className="w-4 h-4 text-[#0d530e] shrink-0 mt-0.5" />
               <div>
-                <span className="font-semibold text-slate-700 block">Thời gian diễn ra:</span>
-                <span className="text-slate-600">
+                <span className="font-semibold text-[#1f2d20] block">Thời gian diễn ra:</span>
+                <span className="text-[#555555]">
                   {new Date(activity.startDate).toLocaleString('vi-VN')} đến {new Date(activity.endDate).toLocaleString('vi-VN')}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-50/80 border border-slate-100">
-              <MapPin className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+            <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-[#f7f9f7] border border-[#e8f2ed]">
+              <MapPin className="w-4 h-4 text-[#d49b11] shrink-0 mt-0.5" />
               <div>
-                <span className="font-semibold text-slate-700 block">Địa điểm tập trung:</span>
-                <span className="text-slate-600">{activity.locationName} - {activity.specificAddress}</span>
+                <span className="font-semibold text-[#1f2d20] block">Địa điểm tập trung:</span>
+                <span className="text-[#555555]">{activity.locationName} - {activity.specificAddress}</span>
               </div>
             </div>
           </div>
 
           {/* Description */}
           <div>
-            <h4 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-emerald-600" />
+            <h4 className="text-sm font-bold text-[#0d530e] mb-2 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-[#d49b11]" />
               Mô tả chi tiết hoạt động
             </h4>
-            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed whitespace-pre-line bg-white p-4 rounded-xl border border-slate-100">
+            <p className="text-xs sm:text-sm text-[#445447] leading-relaxed whitespace-pre-line bg-white p-4 rounded-2xl border border-[#e8f2ed]">
               {activity.description}
             </p>
           </div>
 
           {/* Requirements and Benefits */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-amber-50/50 p-4 rounded-2xl border border-amber-100">
-              <h5 className="text-xs font-bold text-amber-900 mb-2 flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <div className="bg-[#fef8e6]/80 p-4 rounded-2xl border border-[#eaae1a]/35">
+              <h5 className="text-xs font-bold text-[#735104] mb-2 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-[#d49b11]" />
                 Yêu cầu đối với TNV
               </h5>
-              <p className="text-xs text-amber-800/90 leading-relaxed">{activity.requirements}</p>
+              <p className="text-xs text-[#6d4c05] leading-relaxed">{activity.requirements}</p>
             </div>
 
-            <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100">
-              <h5 className="text-xs font-bold text-emerald-900 mb-2 flex items-center gap-1.5">
-                <Award className="w-4 h-4 text-emerald-600" />
+            <div className="bg-[#f5f9f7] p-4 rounded-2xl border border-[#0d530e]/20">
+              <h5 className="text-xs font-bold text-[#0d530e] mb-2 flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-[#0d530e]" />
                 Quyền lợi được hưởng
               </h5>
-              <p className="text-xs text-emerald-800/90 leading-relaxed">{activity.benefits}</p>
+              <p className="text-xs text-[#2d5543] leading-relaxed">{activity.benefits}</p>
             </div>
           </div>
 
           {/* Registration Section */}
-          <div className="border-t border-slate-100 pt-5">
-            <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-              <Users className="w-4 h-4 text-emerald-600" />
-              Trạng thái & Đăng ký tham gia
+          <div className="border-t border-[#e8f2ed] pt-5">
+            <h4 className="text-sm font-bold text-[#0d530e] mb-3 flex items-center gap-2">
+              <Users className="w-4 h-4 text-[#0d530e]" />
+              Trạng thái &amp; Đăng ký tham gia
             </h4>
 
             {userRole === 'guest' ? (
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
-                <p className="text-xs text-slate-600 mb-3">
+              <div className="bg-[#f5f9f7] p-5 rounded-2xl border border-[#0d530e]/15 text-center">
+                <p className="text-xs text-[#555555] mb-3.5">
                   Bạn cần đăng nhập bằng tài khoản Tình nguyện viên để đăng ký tham gia hoạt động này.
                 </p>
                 <button
                   onClick={onOpenLogin}
-                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition-all"
+                  className="vv-btn-primary px-6 py-2.5 text-xs font-bold shadow-sm cursor-pointer"
                 >
                   Đăng Nhập Ngay
                 </button>
               </div>
             ) : isVolunteer ? (
               myReg ? (
-                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-3">
-                  <div className="flex items-center justify-between">
+                <div className="p-4 rounded-2xl bg-[#f5f9f7] border border-[#0d530e]/20 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-emerald-900">Trạng thái đăng ký của bạn:</span>
-                      <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
-                        myReg.status === 'approved' ? 'bg-emerald-600 text-white' :
-                        myReg.status === 'pending' ? 'bg-amber-500 text-white' : 'bg-rose-500 text-white'
+                      <span className="text-xs font-bold text-[#1f2d20]">Trạng thái đăng ký của bạn:</span>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                        myReg.status === 'approved' ? 'bg-[#0d530e] text-white' :
+                        myReg.status === 'pending' ? 'bg-[#eaae1a] text-[#14251c]' : 'bg-rose-600 text-white'
                       }`}>
                         {myReg.status === 'approved' ? '✓ Đã Được Chấp Thuận' :
                          myReg.status === 'pending' ? '⏳ Đang Chờ Xét Duyệt' : 'Bị Từ Chối'}
                       </span>
                     </div>
 
-                    {myReg.status === 'pending' && (
+                    {(myReg.status === 'pending' || (myReg.status === 'approved' && myReg.attendanceStatus === 'not_yet')) && (
                       <button
                         onClick={() => cancelRegistration(myReg.id)}
                         className="text-xs text-rose-600 hover:text-rose-800 font-semibold underline cursor-pointer"
@@ -245,12 +276,16 @@ export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) 
                     )}
                   </div>
 
+                  {myReg.status === 'rejected' && myReg.orgRejectReason && (
+                    <p className="text-xs text-rose-700 font-medium">Lý do: {myReg.orgRejectReason}</p>
+                  )}
+
                   {myReg.status === 'approved' && !myReg.confirmedByVolunteer && (
-                    <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-emerald-100">
-                      <span className="text-xs text-slate-700">Tổ chức yêu cầu bạn xác nhận tham gia trước ngày diễn ra:</span>
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-3 rounded-xl border border-[#0d530e]/15">
+                      <span className="text-xs text-[#445447]">Tổ chức yêu cầu bạn xác nhận tham gia trước ngày diễn ra:</span>
                       <button
                         onClick={() => confirmVolunteerAttendance(myReg.id)}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs transition-colors"
+                        className="vv-btn-forest px-4 py-1.5 font-semibold text-xs cursor-pointer"
                       >
                         Xác nhận sẽ tham gia
                       </button>
@@ -258,26 +293,25 @@ export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) 
                   )}
 
                   {myReg.status === 'approved' && myReg.confirmedByVolunteer && (
-                    <div className="text-xs text-emerald-800 font-medium flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <div className="text-xs text-[#0d530e] font-medium flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-[#0d530e]" />
                       <span>Bạn đã xác nhận sẽ tham gia. Vui lòng có mặt đúng giờ!</span>
                     </div>
                   )}
 
-                  {/* Attendance status */}
                   {myReg.attendanceStatus === 'present' && (
-                    <div className="bg-emerald-600 text-white p-3 rounded-xl text-xs flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Award className="w-5 h-5 text-amber-300" />
+                    <div className="vv-cta-banner text-white p-3.5 rounded-2xl text-xs flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <Award className="w-5 h-5 text-[#eaae1a]" />
                         <div>
                           <strong className="block">Đã điểm danh Có mặt!</strong>
-                          <span>Xác nhận: +{myReg.hoursConfirmed} giờ công tình nguyện vào hồ sơ.</span>
+                          <span className="text-[#e2f0e9]">Xác nhận: +{myReg.hoursConfirmed} giờ công tình nguyện vào hồ sơ.</span>
                         </div>
                       </div>
                       {!myReg.ratedByVolunteer && (
                         <button
                           onClick={() => setShowReviewForm(true)}
-                          className="bg-white text-emerald-700 font-bold px-3 py-1.5 rounded-lg hover:bg-emerald-50 transition-colors"
+                          className="vv-btn-gold font-bold px-4 py-1.5 text-xs cursor-pointer"
                         >
                           Đánh giá hoạt động
                         </button>
@@ -286,8 +320,14 @@ export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) 
                   )}
                 </div>
               ) : (
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
-                  <label className="block text-xs font-semibold text-slate-700">
+                <div className="bg-[#f7f9f7] p-4 rounded-2xl border border-[#0d530e]/15 space-y-3">
+                  {actionError && (
+                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                      <span>{actionError}</span>
+                    </div>
+                  )}
+                  <label className="block text-xs font-semibold text-[#1f2d20]">
                     Lời nhắn gửi đến Đơn vị Tổ chức (Kinh nghiệm, lý do đăng ký...):
                   </label>
                   <textarea
@@ -295,25 +335,25 @@ export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) 
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     placeholder="VD: Em đã có kinh nghiệm tham gia các hoạt động thiện nguyện tương tự và cam kết tuân thủ nội quy..."
-                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                    className="vv-input w-full text-xs p-3"
                   />
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-[11px] text-slate-500">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <span className="text-[11px] text-[#5a6b5c]">
                       Yêu cầu đăng ký sẽ được gửi đến Ban tổ chức xét duyệt.
                     </span>
                     <button
                       onClick={handleRegister}
-                      disabled={activity.status !== 'recruiting'}
-                      className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                      disabled={submitting || activity.status !== 'recruiting'}
+                      className="vv-btn-primary px-6 py-2.5 text-xs font-bold disabled:opacity-50 shadow-sm flex items-center gap-1.5 cursor-pointer"
                     >
                       <Send className="w-3.5 h-3.5" />
-                      Gửi Đăng Ký Tham Gia
+                      {submitting ? 'Đang gửi...' : 'Gửi Đăng Ký Tham Gia'}
                     </button>
                   </div>
                 </div>
               )
             ) : (
-              <div className="bg-slate-50 p-3 rounded-xl text-xs text-slate-500">
+              <div className="bg-[#f7f9f7] p-3.5 rounded-xl text-xs text-[#5a6b5c] border border-[#e8f2ed]">
                 Bạn đang xem chi tiết hoạt động dưới quyền {userRole === 'organization' ? 'Đơn vị Tổ chức' : 'Admin'}.
               </div>
             )}
@@ -321,52 +361,58 @@ export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) 
 
           {/* Rating Modal/Form */}
           {showReviewForm && (
-            <form onSubmit={handleReviewSubmit} className="bg-amber-50 p-4 rounded-2xl border border-amber-200 space-y-3">
-              <h5 className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
-                <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+            <form onSubmit={handleReviewSubmit} className="bg-[#fef8e6] p-4 rounded-2xl border border-[#eaae1a]/45 space-y-3">
+              <h5 className="text-xs font-bold text-[#735104] flex items-center gap-1.5">
+                <Star className="w-4 h-4 text-[#eaae1a] fill-[#eaae1a]" />
                 Đánh giá hoạt động sau khi tham gia
               </h5>
+              {reviewError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs">
+                  {reviewError}
+                </div>
+              )}
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-700 font-medium">Chấm điểm:</span>
+                <span className="text-xs text-[#1f2d20] font-medium">Chấm điểm:</span>
                 <div className="flex gap-1">
                   {[1, 2, 3, 4, 5].map((star) => (
                     <button
                       key={star}
                       type="button"
                       onClick={() => setReviewRating(star)}
-                      className="text-amber-400 hover:scale-110 transition-transform"
+                      className="hover:scale-110 transition-transform cursor-pointer"
                     >
                       <Star
                         className={`w-5 h-5 ${
-                          star <= reviewRating ? 'fill-amber-400 text-amber-400' : 'text-slate-300'
+                          star <= reviewRating ? 'fill-[#eaae1a] text-[#eaae1a]' : 'text-[#d2d2d7]'
                         }`}
                       />
                     </button>
                   ))}
                 </div>
-                <span className="text-xs font-bold text-amber-800">({reviewRating}/5 sao)</span>
+                <span className="text-xs font-bold text-[#735104]">({reviewRating}/5 sao)</span>
               </div>
               <textarea
                 rows={2}
                 value={reviewComment}
                 onChange={(e) => setReviewComment(e.target.value)}
                 placeholder="Chia sẻ nhận xét của bạn về khâu tổ chức, hậu cần và ý nghĩa của hoạt động..."
-                className="w-full text-xs p-3 rounded-xl border border-amber-200 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="vv-input w-full text-xs p-3"
                 required
               />
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowReviewForm(false)}
-                  className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800"
+                  className="px-4 py-1.5 text-xs text-[#5a6b5c] hover:text-[#1f2d20] cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs"
+                  disabled={submitting}
+                  className="vv-btn-gold px-5 py-1.5 text-xs font-bold disabled:opacity-50 shadow-xs cursor-pointer"
                 >
-                  Gửi Đánh Giá
+                  {submitting ? 'Đang gửi...' : 'Gửi Đánh Giá'}
                 </button>
               </div>
             </form>
@@ -374,24 +420,24 @@ export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) 
 
           {/* Reviews List */}
           {activityReviews.length > 0 && (
-            <div className="border-t border-slate-100 pt-5">
-              <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-1.5">
-                <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+            <div className="border-t border-[#e8f2ed] pt-5">
+              <h4 className="text-sm font-bold text-[#0d530e] mb-3 flex items-center gap-1.5">
+                <Star className="w-4 h-4 text-[#eaae1a] fill-[#eaae1a]" />
                 Nhận xét từ các tình nguyện viên ({activityReviews.length})
               </h4>
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {activityReviews.map((rev) => (
-                  <div key={rev.id} className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+                  <div key={rev.id} className="p-4 rounded-2xl bg-[#f7f9f7] border border-[#e8f2ed] text-xs">
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="font-semibold text-slate-800">{rev.volunteerName}</span>
-                      <div className="flex items-center gap-1 text-amber-500">
+                      <span className="font-bold text-[#0d530e]">{rev.volunteerName}</span>
+                      <div className="flex items-center gap-0.5">
                         {Array.from({ length: rev.rating }).map((_, i) => (
-                          <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                          <Star key={i} className="w-3.5 h-3.5 fill-[#eaae1a] text-[#eaae1a]" />
                         ))}
                       </div>
                     </div>
-                    <p className="text-slate-600 italic">"{rev.comment}"</p>
-                    <span className="text-[10px] text-slate-400 mt-1 block">{rev.createdAt}</span>
+                    <p className="text-[#555555] italic">&quot;{rev.comment}&quot;</p>
+                    <span className="text-[10px] text-[#609f84] mt-1.5 block">{rev.createdAt}</span>
                   </div>
                 ))}
               </div>
@@ -400,11 +446,11 @@ export const ActivityDetailModal = ({ activity, isOpen, onClose, onOpenLogin }) 
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
-          <span className="text-xs text-slate-500">Mã hoạt động: {activity.id}</span>
+        <div className="p-4 px-6 border-t border-[#e8f2ed] bg-[#f5f9f7] flex items-center justify-between">
+          <span className="text-xs text-[#5a6b5c]">Mã hoạt động: {activity.id}</span>
           <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+            onClick={handleClose}
+            className="px-5 py-2 text-xs font-semibold text-[#0d530e] bg-white hover:bg-[#e8f2ed] border border-[#0d530e]/20 rounded-full transition-colors cursor-pointer"
           >
             Đóng
           </button>

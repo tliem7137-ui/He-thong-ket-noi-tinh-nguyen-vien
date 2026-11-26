@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   initialCategories,
   initialLocations,
@@ -13,19 +13,20 @@ import {
   initialSystemSettings
 } from '../data/initialData';
 import confetti from 'canvas-confetti';
-
-const AppContext = createContext();
+import { AppContext } from './useApp';
 
 const STORAGE_KEYS = {
   CURRENT_USER: 'vconnect_current_user',
-  CURRENT_ROLE: 'vconnect_current_role'
+  CURRENT_ROLE: 'vconnect_current_role',
+  AUTH_TOKEN: 'vconnect_auth_token',
+  SESSION_VERSION: 'vconnect_v3_token_session'
 };
 
 const getStored = (key, fallback) => {
   try {
     const item = localStorage.getItem(key);
     return item ? JSON.parse(item) : fallback;
-  } catch (e) {
+  } catch {
     return fallback;
   }
 };
@@ -33,18 +34,47 @@ const getStored = (key, fallback) => {
 const setStored = (key, val) => {
   try {
     localStorage.setItem(key, JSON.stringify(val));
-  } catch (e) {}
+  } catch {
+    // Ignore storage quota errors
+  }
+};
+
+const loadInitialSession = () => {
+  try {
+    const versionOk = localStorage.getItem(STORAGE_KEYS.SESSION_VERSION);
+    if (!versionOk) {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_ROLE);
+      localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
+      localStorage.setItem(STORAGE_KEYS.SESSION_VERSION, 'true');
+      return { role: 'guest', user: null, token: '' };
+    }
+    const savedUser = getStored(STORAGE_KEYS.CURRENT_USER, null);
+    const savedRole = getStored(STORAGE_KEYS.CURRENT_ROLE, 'guest');
+    const savedToken = getStored(STORAGE_KEYS.AUTH_TOKEN, '');
+    if (!savedUser || !savedToken || savedRole === 'guest') {
+      return { role: 'guest', user: null, token: '' };
+    }
+    return { role: savedRole, user: savedUser, token: savedToken };
+  } catch {
+    return { role: 'guest', user: null, token: '' };
+  }
+};
+
+const stripPassword = (entity) => {
+  if (!entity || typeof entity !== 'object') return entity;
+  const { password: _password, ...safe } = entity;
+  return safe;
 };
 
 // API base path (proxied by Vite to http://localhost:5000 in dev)
 const API_BASE = '/api';
 
 export const AppProvider = ({ children }) => {
-  // State initialized from initialData and synchronized with backend API
   const [categories, setCategories] = useState(initialCategories);
   const [locations, setLocations] = useState(initialLocations);
-  const [organizations, setOrganizations] = useState(initialOrganizations);
-  const [volunteers, setVolunteers] = useState(initialVolunteers);
+  const [organizations, setOrganizations] = useState(() => initialOrganizations.map(stripPassword));
+  const [volunteers, setVolunteers] = useState(() => initialVolunteers.map(stripPassword));
   const [activities, setActivities] = useState(initialActivities);
   const [registrations, setRegistrations] = useState(initialRegistrations);
   const [reviews, setReviews] = useState(initialReviews);
@@ -55,129 +85,131 @@ export const AppProvider = ({ children }) => {
 
   const [backendOnline, setBackendOnline] = useState(false);
 
-  // Current session - defaults strictly to guest
-  const [userRole, setUserRole] = useState(() => {
-    const savedUser = getStored(STORAGE_KEYS.CURRENT_USER, null);
-    if (!savedUser) return 'guest';
-    return getStored(STORAGE_KEYS.CURRENT_ROLE, 'guest');
-  });
-  const [currentUser, setCurrentUser] = useState(() => getStored(STORAGE_KEYS.CURRENT_USER, null));
+  const [initialSession] = useState(loadInitialSession);
+  const [userRole, setUserRole] = useState(initialSession.role);
+  const [sessionUser, setSessionUser] = useState(initialSession.user);
+  const [authToken, setAuthToken] = useState(initialSession.token);
 
-  // Reset any legacy mock session to guest on first load of this update
-  useEffect(() => {
-    const legacyCleaned = localStorage.getItem('vconnect_v2_guest_default');
-    if (!legacyCleaned) {
-      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-      localStorage.removeItem(STORAGE_KEYS.CURRENT_ROLE);
-      localStorage.setItem('vconnect_v2_guest_default', 'true');
-      setUserRole('guest');
-      setCurrentUser(null);
+  // Derive synced currentUser without cascading setState-in-effect
+  const currentUser = useMemo(() => {
+    if (!sessionUser) return null;
+    if (userRole === 'volunteer') {
+      return volunteers.find((v) => v.id === sessionUser.id) || sessionUser;
     }
+    if (userRole === 'organization') {
+      return organizations.find((o) => o.id === sessionUser.id) || sessionUser;
+    }
+    return sessionUser;
+  }, [sessionUser, userRole, volunteers, organizations]);
+
+  const setCurrentUser = useCallback((user) => {
+    setSessionUser(user);
+  }, []);
+
+  const setSession = useCallback((role, user, token = '') => {
+    setUserRole(role);
+    setSessionUser(user);
+    setAuthToken(token);
   }, []);
 
   // UI helpers: Toasts
   const [toasts, setToasts] = useState([]);
 
-  const showToast = (message, type = 'success') => {
+  const showToast = useCallback((message, type = 'success') => {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4000);
-  };
+  }, []);
 
-  const removeToast = (id) => {
+  const removeToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
+  }, []);
 
   // Sync session to localStorage
-  useEffect(() => { setStored(STORAGE_KEYS.CURRENT_ROLE, userRole); }, [userRole]);
-  useEffect(() => { setStored(STORAGE_KEYS.CURRENT_USER, currentUser); }, [currentUser]);
+  useEffect(() => {
+    setStored(STORAGE_KEYS.CURRENT_ROLE, userRole);
+  }, [userRole]);
+  useEffect(() => {
+    setStored(STORAGE_KEYS.CURRENT_USER, currentUser);
+  }, [currentUser]);
+  useEffect(() => {
+    setStored(STORAGE_KEYS.AUTH_TOKEN, authToken);
+  }, [authToken]);
 
-  // Sync full data from Backend on initial mount
+  const applyBootstrapData = useCallback((d) => {
+    if (d.categories) setCategories(d.categories);
+    if (d.locations) setLocations(d.locations);
+    if (d.organizations) setOrganizations(d.organizations);
+    if (d.volunteers) setVolunteers(d.volunteers);
+    if (d.activities) setActivities(d.activities);
+    if (d.registrations) setRegistrations(d.registrations);
+    if (d.reviews) setReviews(d.reviews);
+    if (d.volunteerEvaluations) setVolunteerEvaluations(d.volunteerEvaluations);
+    if (d.notifications) setNotifications(d.notifications);
+    if (d.feedbacks) setFeedbacks(d.feedbacks);
+    if (d.settings) setSettings(d.settings);
+  }, []);
+
   const syncWithBackend = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/bootstrap`);
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
-          const d = json.data;
-          if (d.categories) setCategories(d.categories);
-          if (d.locations) setLocations(d.locations);
-          if (d.organizations) setOrganizations(d.organizations);
-          if (d.volunteers) setVolunteers(d.volunteers);
-          if (d.activities) setActivities(d.activities);
-          if (d.registrations) setRegistrations(d.registrations);
-          if (d.reviews) setReviews(d.reviews);
-          if (d.volunteerEvaluations) setVolunteerEvaluations(d.volunteerEvaluations);
-          if (d.notifications) setNotifications(d.notifications);
-          if (d.feedbacks) setFeedbacks(d.feedbacks);
-          if (d.settings) setSettings(d.settings);
+          applyBootstrapData(json.data);
           setBackendOnline(true);
         }
       }
-    } catch (e) {
-      // Backend not yet reachable or in standalone mode
+    } catch {
       setBackendOnline(false);
     }
-  }, []);
+  }, [applyBootstrapData]);
 
+  // Initial load from backend
   useEffect(() => {
-    syncWithBackend();
-  }, [syncWithBackend]);
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/bootstrap`);
+        if (res.ok && active) {
+          const json = await res.json();
+          if (json.success && json.data && active) {
+            applyBootstrapData(json.data);
+            setBackendOnline(true);
+          }
+        }
+      } catch {
+        if (active) setBackendOnline(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [applyBootstrapData]);
 
-  // Keep currentUser synced
-  useEffect(() => {
-    if (!currentUser) return;
-    if (userRole === 'volunteer') {
-      const updated = volunteers.find((v) => v.id === currentUser.id);
-      if (updated) setCurrentUser(updated);
-    } else if (userRole === 'organization') {
-      const updated = organizations.find((o) => o.id === currentUser.id);
-      if (updated) setCurrentUser(updated);
-    }
-  }, [volunteers, organizations, userRole]);
+  // Authenticated fetch helper
+  const apiFetch = useCallback(
+    (path, options = {}) => {
+      const headers = { ...(options.headers || {}) };
+      if (options.body && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+      }
+      if (authToken) {
+        headers.Authorization = `Bearer ${authToken}`;
+      }
+      return fetch(`${API_BASE}${path}`, { ...options, headers });
+    },
+    [authToken]
+  );
 
-  // Quick switch user
-  const quickSwitchUser = (role, targetId) => {
-    if (role === 'guest') {
-      setUserRole('guest');
-      setCurrentUser(null);
-      showToast('Đã chuyển sang chế độ Khách vãng lai', 'info');
-      return;
-    }
-    if (role === 'admin') {
-      setUserRole('admin');
-      setCurrentUser({
-        id: 'admin',
-        fullName: 'Quản Trị Viên Hệ Thống',
-        email: 'admin@vconnect.vn',
-        role: 'admin'
-      });
-      showToast('Đã chuyển sang quyền Quản trị viên (Admin)', 'info');
-      return;
-    }
-    if (role === 'volunteer') {
-      const vol = volunteers.find((v) => v.id === targetId) || volunteers[0];
-      setUserRole('volunteer');
-      setCurrentUser(vol);
-      showToast(`Đã chuyển sang Tình nguyện viên: ${vol.fullName}`, 'info');
-      return;
-    }
-    if (role === 'organization') {
-      const org = organizations.find((o) => o.id === targetId) || organizations[0];
-      setUserRole('organization');
-      setCurrentUser(org);
-      showToast(`Đã chuyển sang Tổ chức: ${org.name}`, 'info');
-      return;
-    }
-  };
-
-  const logout = () => {
+  const logout = useCallback(() => {
     setUserRole('guest');
-    setCurrentUser(null);
+    setSessionUser(null);
+    setAuthToken('');
     showToast('Đã đăng xuất khỏi hệ thống', 'info');
-  };
+  }, [showToast]);
 
   // Login handler with Backend API
   const login = async (email, password, expectedRole) => {
@@ -193,107 +225,35 @@ export const AppProvider = ({ children }) => {
         return { success: false, errorCode: 'rate_limited', error: 'rate_limited' };
       }
       if (res.ok && data.success) {
-        setUserRole(data.role);
-        setCurrentUser(data.user);
+        setSession(data.role, data.user, data.token || '');
         showToast(`Đăng nhập thành công! Chào mừng ${data.user.fullName || data.user.name}`, 'success');
-        return { success: true };
-      } else {
-        const errorCode = data.error || 'invalid_credentials';
-        return { success: false, errorCode, error: errorCode };
-      }
-    } catch (e) {
-      // Fallback local logic
-      if (expectedRole === 'admin') {
-        const ADMIN_RECOVERY = 'VCADM-2026-RECOVERY';
-        if ((email === 'admin@vconnect.vn' && password === 'admin123') || password === ADMIN_RECOVERY) {
-          quickSwitchUser('admin');
-          return { success: true };
-        }
-        return { success: false, errorCode: 'invalid_credentials', error: 'invalid_credentials' };
-      }
-      if (expectedRole === 'volunteer') {
-        const vol = volunteers.find((v) => v.email.toLowerCase() === email.toLowerCase());
-        if (!vol || (vol.password && vol.password !== password)) return { success: false, errorCode: 'invalid_credentials', error: 'invalid_credentials' };
-        if (vol.status === 'locked') return { success: false, errorCode: 'account_locked', error: 'account_locked' };
-        if (vol.status === 'pending') return { success: false, errorCode: 'account_pending', error: 'account_pending' };
-        setUserRole('volunteer');
-        setCurrentUser(vol);
+        syncWithBackend();
         return { success: true };
       }
-      if (expectedRole === 'organization') {
-        const org = organizations.find((o) => o.email.toLowerCase() === email.toLowerCase());
-        if (!org || (org.password && org.password !== password)) return { success: false, errorCode: 'invalid_credentials', error: 'invalid_credentials' };
-        if (org.status === 'locked') return { success: false, errorCode: 'account_locked', error: 'account_locked' };
-        if (org.status === 'pending') return { success: false, errorCode: 'account_pending', error: 'account_pending' };
-        setUserRole('organization');
-        setCurrentUser(org);
-        return { success: true };
-      }
-      return { success: false, errorCode: 'invalid_credentials', error: 'Lỗi kết nối tới máy chủ.' };
+      const errorCode = data.error || 'invalid_credentials';
+      return { success: false, errorCode, error: errorCode };
+    } catch {
+      return { success: false, errorCode: 'server_unreachable', error: 'Không thể kết nối tới máy chủ.' };
     }
   };
 
-  // Register Volunteer with Backend API
-  const registerVolunteer = async (formData) => {
+  // Change password for volunteer / organization
+  const changePassword = async (oldPassword, newPassword) => {
     try {
-      const res = await fetch(`${API_BASE}/auth/register-volunteer`, {
+      const res = await apiFetch('/auth/change-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({ oldPassword, newPassword })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setVolunteers((prev) => [data.volunteer, ...prev]);
-        showToast('Đăng ký tài khoản thành công! Hồ sơ đang ở trạng thái Chờ duyệt bởi Admin.', 'info');
-        syncWithBackend();
-        return { success: true, volunteer: data.volunteer };
-      } else {
-        return { success: false, error: data.error };
+        showToast('Đổi mật khẩu thành công!', 'success');
+        return { success: true };
       }
-    } catch (e) {
-      // Fallback
-      const newVol = {
-        id: `vol-${Date.now()}`,
-        ...formData,
-        status: 'pending',
-        totalHours: 0,
-        completedActivitiesCount: 0,
-        ratingAvg: 0,
-        registeredAt: new Date().toISOString().split('T')[0]
-      };
-      setVolunteers((prev) => [newVol, ...prev]);
-      showToast('Đăng ký tài khoản thành công! Hồ sơ đang Chờ duyệt.', 'info');
-      return { success: true, volunteer: newVol };
-    }
-  };
-
-  // Register Organization with Backend API
-  const registerOrganization = async (formData) => {
-    try {
-      const res = await fetch(`${API_BASE}/auth/register-organization`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setOrganizations((prev) => [data.organization, ...prev]);
-        showToast('Hồ sơ tổ chức đã được nộp! Vui lòng chờ Ban Quản trị xác minh pháp lý.', 'info');
-        syncWithBackend();
-        return { success: true, organization: data.organization };
-      } else {
-        return { success: false, error: data.error };
-      }
-    } catch (e) {
-      const newOrg = {
-        id: `org-${Date.now()}`,
-        ...formData,
-        status: 'pending',
-        verifiedAt: null
-      };
-      setOrganizations((prev) => [newOrg, ...prev]);
-      showToast('Hồ sơ tổ chức đã được nộp! Đang chờ xác minh.', 'info');
-      return { success: true, organization: newOrg };
+      const errMsg = data.error || 'Không thể đổi mật khẩu.';
+      showToast(errMsg, 'error');
+      return { success: false, error: errMsg };
+    } catch {
+      return { success: false, error: 'Lỗi kết nối tới máy chủ.' };
     }
   };
 
@@ -301,8 +261,10 @@ export const AppProvider = ({ children }) => {
   const markNotificationAsRead = async (id) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
     try {
-      await fetch(`${API_BASE}/notifications/${id}/read`, { method: 'POST' });
-    } catch (e) {}
+      await apiFetch(`/notifications/${id}/read`, { method: 'POST' });
+    } catch {
+      // Ignore network failure on read marker
+    }
   };
 
   const markAllNotificationsAsRead = async (targetUserId) => {
@@ -310,12 +272,13 @@ export const AppProvider = ({ children }) => {
       prev.map((n) => (n.userId === targetUserId ? { ...n, read: true } : n))
     );
     try {
-      await fetch(`${API_BASE}/notifications/read-all`, {
+      await apiFetch('/notifications/read-all', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: targetUserId })
       });
-    } catch (e) {}
+    } catch {
+      // Ignore network failure on read marker
+    }
   };
 
   // Activities
@@ -324,9 +287,8 @@ export const AppProvider = ({ children }) => {
       return { success: false, error: 'Chỉ tổ chức mới có quyền tạo hoạt động!' };
     }
     try {
-      const res = await fetch(`${API_BASE}/activities`, {
+      const res = await apiFetch('/activities', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
           organizationId: currentUser.id,
@@ -339,53 +301,75 @@ export const AppProvider = ({ children }) => {
         showToast('Tạo hoạt động thành công! Đang chờ Quản trị viên duyệt để công khai.', 'success');
         syncWithBackend();
         return { success: true, activity: resData.activity };
-      } else {
-        return { success: false, error: resData.error };
       }
-    } catch (e) {
-      return { success: false, error: 'Lỗi máy chủ khi tạo hoạt động' };
+      return { success: false, error: resData.error || 'Không thể tạo hoạt động.' };
+    } catch {
+      return { success: false, error: 'Lỗi máy chủ khi tạo hoạt động.' };
     }
   };
 
   const updateActivity = async (id, data) => {
     try {
-      await fetch(`${API_BASE}/activities/${id}`, {
+      const res = await apiFetch(`/activities/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-    } catch (e) {}
-    setActivities((prev) => prev.map((act) => (act.id === id ? { ...act, ...data } : act)));
-    showToast('Đã cập nhật thông tin hoạt động!', 'success');
-    return { success: true };
+      const resData = await res.json();
+      if (res.ok && resData.success) {
+        setActivities((prev) => prev.map((act) => (act.id === id ? resData.activity : act)));
+        showToast(
+          resData.resubmitted
+            ? 'Đã cập nhật hoạt động và gửi lại Quản trị viên kiểm duyệt!'
+            : 'Đã cập nhật thông tin hoạt động!',
+          'success'
+        );
+        syncWithBackend();
+        return { success: true, activity: resData.activity };
+      }
+      showToast(resData.error || 'Không thể cập nhật hoạt động.', 'error');
+      return { success: false, error: resData.error };
+    } catch {
+      showToast('Lỗi máy chủ khi cập nhật hoạt động.', 'error');
+      return { success: false, error: 'Lỗi kết nối.' };
+    }
   };
 
   const cancelActivity = async (id, reason) => {
     try {
-      await fetch(`${API_BASE}/activities/${id}/cancel`, {
+      const res = await apiFetch(`/activities/${id}/cancel`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
       });
-    } catch (e) {}
-    setActivities((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: 'cancelled', cancelReason: reason } : a))
-    );
-    syncWithBackend();
-    showToast('Đã hủy hoạt động và thông báo tới TNV.', 'warning');
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setActivities((prev) =>
+          prev.map((a) => (a.id === id ? { ...a, status: 'cancelled', cancelReason: reason } : a))
+        );
+        syncWithBackend();
+        showToast('Đã hủy hoạt động và thông báo tới TNV.', 'warning');
+      } else {
+        showToast(data.error || 'Không thể hủy hoạt động.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi hủy hoạt động.', 'error');
+    }
   };
 
   const toggleActivityRecruiting = async (id) => {
     try {
-      const res = await fetch(`${API_BASE}/activities/${id}/toggle-recruiting`, { method: 'POST' });
+      const res = await apiFetch(`/activities/${id}/toggle-recruiting`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.success) {
         setActivities((prev) =>
           prev.map((a) => (a.id === id ? { ...a, status: data.status } : a))
         );
         showToast(`Đã chuyển trạng thái sang: ${data.status === 'recruiting' ? 'Đang tuyển' : 'Đã đóng tuyển'}`, 'info');
+      } else {
+        showToast(data.error || 'Không thể đổi trạng thái tuyển.', 'error');
       }
-    } catch (e) {}
+    } catch {
+      showToast('Lỗi máy chủ khi cập nhật trạng thái tuyển.', 'error');
+    }
   };
 
   // Registrations (Quy trình 4 & 5)
@@ -398,9 +382,8 @@ export const AppProvider = ({ children }) => {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/registrations`, {
+      const res = await apiFetch('/registrations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           activityId,
           volunteerId: currentUser.id,
@@ -413,28 +396,36 @@ export const AppProvider = ({ children }) => {
         showToast('Đăng ký tham gia thành công! Đang chờ Ban tổ chức xét duyệt.', 'success');
         syncWithBackend();
         return { success: true };
-      } else {
-        return { success: false, error: data.error || 'Không thể đăng ký.' };
       }
-    } catch (e) {
+      const errMsg = data.error || 'Không thể đăng ký.';
+      showToast(errMsg, 'error');
+      return { success: false, error: errMsg };
+    } catch {
       return { success: false, error: 'Lỗi máy chủ khi đăng ký.' };
     }
   };
 
   const cancelRegistration = async (regId) => {
     try {
-      await fetch(`${API_BASE}/registrations/${regId}/cancel`, { method: 'POST' });
-      setRegistrations((prev) =>
-        prev.map((r) => (r.id === regId ? { ...r, status: 'cancelled' } : r))
-      );
-      syncWithBackend();
-      showToast('Đã hủy đăng ký hoạt động.', 'info');
-    } catch (e) {}
+      const res = await apiFetch(`/registrations/${regId}/cancel`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setRegistrations((prev) =>
+          prev.map((r) => (r.id === regId ? { ...r, status: 'cancelled' } : r))
+        );
+        syncWithBackend();
+        showToast('Đã hủy đăng ký hoạt động.', 'info');
+      } else {
+        showToast(data.error || 'Không thể hủy đăng ký.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi hủy đăng ký.', 'error');
+    }
   };
 
   const approveRegistration = async (regId) => {
     try {
-      const res = await fetch(`${API_BASE}/registrations/${regId}/approve`, { method: 'POST' });
+      const res = await apiFetch(`/registrations/${regId}/approve`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.success) {
         setRegistrations((prev) =>
@@ -442,15 +433,18 @@ export const AppProvider = ({ children }) => {
         );
         syncWithBackend();
         showToast('Đã duyệt tình nguyện viên thành công!', 'success');
+      } else {
+        showToast(data.error || 'Không thể duyệt đăng ký.', 'error');
       }
-    } catch (e) {}
+    } catch {
+      showToast('Lỗi máy chủ khi duyệt đăng ký.', 'error');
+    }
   };
 
   const rejectRegistration = async (regId, reason) => {
     try {
-      const res = await fetch(`${API_BASE}/registrations/${regId}/reject`, {
+      const res = await apiFetch(`/registrations/${regId}/reject`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
       });
       const data = await res.json();
@@ -460,26 +454,36 @@ export const AppProvider = ({ children }) => {
         );
         syncWithBackend();
         showToast('Đã gửi thông báo từ chối tới tình nguyện viên.', 'info');
+      } else {
+        showToast(data.error || 'Không thể từ chối đăng ký.', 'error');
       }
-    } catch (e) {}
+    } catch {
+      showToast('Lỗi máy chủ khi từ chối đăng ký.', 'error');
+    }
   };
 
   const confirmVolunteerAttendance = async (regId) => {
     try {
-      await fetch(`${API_BASE}/registrations/${regId}/confirm-attendance`, { method: 'POST' });
-      setRegistrations((prev) =>
-        prev.map((r) => (r.id === regId ? { ...r, confirmedByVolunteer: true } : r))
-      );
-      showToast('Đã xác nhận sẵn sàng tham gia hoạt động!', 'success');
-    } catch (e) {}
+      const res = await apiFetch(`/registrations/${regId}/confirm-attendance`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setRegistrations((prev) =>
+          prev.map((r) => (r.id === regId ? { ...r, confirmedByVolunteer: true } : r))
+        );
+        showToast('Đã xác nhận sẵn sàng tham gia hoạt động!', 'success');
+      } else {
+        showToast(data.error || 'Không thể xác nhận tham gia.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi xác nhận tham gia.', 'error');
+    }
   };
 
   // Điểm danh & Ghi nhận giờ công (Quy trình 6)
   const markAttendance = async (regId, status) => {
     try {
-      const res = await fetch(`${API_BASE}/registrations/${regId}/mark-attendance`, {
+      const res = await apiFetch(`/registrations/${regId}/mark-attendance`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
       });
       const data = await res.json();
@@ -495,34 +499,46 @@ export const AppProvider = ({ children }) => {
         if (status === 'present') {
           try {
             confetti({ particleCount: 60, spread: 60, origin: { y: 0.7 } });
-          } catch (e) {}
+          } catch {
+            // Ignore confetti errors
+          }
           showToast(`Đã điểm danh CÓ MẶT (+${data.registration.hoursConfirmed}h công)!`, 'success');
         } else {
           showToast('Đã ghi nhận VẮNG MẶT.', 'info');
         }
         syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể điểm danh.', 'error');
       }
-    } catch (e) {}
+    } catch {
+      showToast('Lỗi máy chủ khi điểm danh.', 'error');
+    }
   };
 
   const completeActivity = async (activityId) => {
     try {
-      await fetch(`${API_BASE}/activities/${activityId}/complete`, { method: 'POST' });
-      setActivities((prev) =>
-        prev.map((a) => (a.id === activityId ? { ...a, status: 'completed' } : a))
-      );
-      showToast('Hoạt động đã kết thúc và chuyển sang trạng thái Hoàn thành!', 'success');
-      syncWithBackend();
-    } catch (e) {}
+      const res = await apiFetch(`/activities/${activityId}/complete`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setActivities((prev) =>
+          prev.map((a) => (a.id === activityId ? { ...a, status: 'completed' } : a))
+        );
+        showToast('Hoạt động đã kết thúc và chuyển sang trạng thái Hoàn thành!', 'success');
+        syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể kết thúc hoạt động.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi kết thúc hoạt động.', 'error');
+    }
   };
 
   // Reviews & Evaluations (Quy trình 7)
   const submitActivityReview = async (activityId, rating, comment) => {
     if (!currentUser || userRole !== 'volunteer') return { success: false, error: 'Cần quyền TNV' };
     try {
-      const res = await fetch(`${API_BASE}/reviews`, {
+      const res = await apiFetch('/reviews', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           activityId,
           volunteerId: currentUser.id,
@@ -542,20 +558,25 @@ export const AppProvider = ({ children }) => {
         );
         try {
           confetti({ particleCount: 50, spread: 50 });
-        } catch (e) {}
+        } catch {
+          // Ignore confetti errors
+        }
         showToast('Cảm ơn bạn đã gửi đánh giá quý báu!', 'success');
         syncWithBackend();
         return { success: true };
       }
-    } catch (e) {}
-    return { success: false, error: 'Lỗi gửi đánh giá.' };
+      const errMsg = data.error || 'Không thể gửi đánh giá.';
+      showToast(errMsg, 'error');
+      return { success: false, error: errMsg };
+    } catch {
+      return { success: false, error: 'Lỗi gửi đánh giá.' };
+    }
   };
 
   const submitVolunteerEvaluation = async (activityId, volunteerId, rating, feedback) => {
     try {
-      const res = await fetch(`${API_BASE}/evaluations`, {
+      const res = await apiFetch('/evaluations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           activityId,
           volunteerId,
@@ -571,20 +592,20 @@ export const AppProvider = ({ children }) => {
         syncWithBackend();
         return { success: true };
       }
-    } catch (e) {}
-    return { success: false, error: 'Lỗi gửi đánh giá.' };
+      const errMsg = data.error || 'Không thể gửi đánh giá.';
+      showToast(errMsg, 'error');
+      return { success: false, error: errMsg };
+    } catch {
+      return { success: false, error: 'Lỗi gửi đánh giá.' };
+    }
   };
 
   const submitFeedback = async (title, content, targetType = 'system') => {
-    if (!currentUser) return;
+    if (!currentUser) return { success: false };
     try {
-      const res = await fetch(`${API_BASE}/feedbacks`, {
+      const res = await apiFetch('/feedbacks', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          volunteerId: currentUser.id,
-          volunteerName: currentUser.fullName || currentUser.name,
-          volunteerEmail: currentUser.email,
           targetType,
           title,
           content
@@ -597,221 +618,344 @@ export const AppProvider = ({ children }) => {
         syncWithBackend();
         return { success: true };
       }
-    } catch (e) {}
+      showToast(data.error || 'Không thể gửi phản hồi.', 'error');
+      return { success: false };
+    } catch {
+      showToast('Lỗi máy chủ khi gửi phản hồi.', 'error');
+      return { success: false };
+    }
   };
 
   // Admin Operations (Quy trình 8)
   const approveUser = async (userId, role) => {
     try {
       const endpoint = role === 'volunteer' ? `/volunteers/${userId}/approve` : `/organizations/${userId}/approve`;
-      await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
-      showToast('Đã phê duyệt tài khoản thành công!', 'success');
-      syncWithBackend();
-    } catch (e) {}
+      const res = await apiFetch(endpoint, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Đã phê duyệt tài khoản thành công!', 'success');
+        syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể phê duyệt tài khoản.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi phê duyệt tài khoản.', 'error');
+    }
   };
 
   const rejectUser = async (userId, role, reason) => {
     try {
       const endpoint = role === 'volunteer' ? `/volunteers/${userId}/reject` : `/organizations/${userId}/reject`;
-      await fetch(`${API_BASE}${endpoint}`, {
+      const res = await apiFetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
       });
-      showToast('Đã từ chối tài khoản.', 'warning');
-      syncWithBackend();
-    } catch (e) {}
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Đã từ chối tài khoản.', 'warning');
+        syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể từ chối tài khoản.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi từ chối tài khoản.', 'error');
+    }
   };
 
   const toggleUserLock = async (userId, role) => {
     try {
       const endpoint = role === 'volunteer' ? `/volunteers/${userId}/toggle-lock` : `/organizations/${userId}/toggle-lock`;
-      const res = await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
+      const res = await apiFetch(endpoint, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.success) {
         showToast(`Đã ${data.status === 'locked' ? 'khóa' : 'mở khóa'} tài khoản.`, 'info');
         syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể đổi trạng thái khóa.', 'error');
       }
-    } catch (e) {}
+    } catch {
+      showToast('Lỗi máy chủ khi đổi trạng thái khóa.', 'error');
+    }
   };
 
   const deleteUser = async (userId, role) => {
     try {
       const endpoint = role === 'volunteer' ? `/volunteers/${userId}` : `/organizations/${userId}`;
-      await fetch(`${API_BASE}${endpoint}`, { method: 'DELETE' });
-      showToast('Đã xóa tài khoản khỏi hệ thống.', 'info');
-      syncWithBackend();
-    } catch (e) {}
+      const res = await apiFetch(endpoint, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Đã xóa tài khoản khỏi hệ thống.', 'info');
+        syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể xóa tài khoản.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi xóa tài khoản.', 'error');
+    }
   };
 
   const approveActivity = async (activityId) => {
     try {
-      await fetch(`${API_BASE}/activities/${activityId}/approve`, { method: 'POST' });
-      showToast('Đã phê duyệt hoạt động công khai!', 'success');
-      syncWithBackend();
-    } catch (e) {}
+      const res = await apiFetch(`/activities/${activityId}/approve`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Đã phê duyệt hoạt động công khai!', 'success');
+        syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể phê duyệt hoạt động.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi phê duyệt hoạt động.', 'error');
+    }
   };
 
   const rejectActivity = async (activityId, reason) => {
     try {
-      await fetch(`${API_BASE}/activities/${activityId}/reject`, {
+      const res = await apiFetch(`/activities/${activityId}/reject`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
       });
-      showToast('Đã từ chối kiểm duyệt hoạt động.', 'warning');
-      syncWithBackend();
-    } catch (e) {}
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Đã từ chối kiểm duyệt hoạt động.', 'warning');
+        syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể từ chối hoạt động.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi từ chối hoạt động.', 'error');
+    }
   };
 
   const requestActivityEdit = async (activityId, reason) => {
     try {
-      await fetch(`${API_BASE}/activities/${activityId}/request-edit`, {
+      const res = await apiFetch(`/activities/${activityId}/request-edit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
       });
-      showToast('Đã gửi yêu cầu chỉnh sửa tới Tổ chức!', 'info');
-      syncWithBackend();
-    } catch (e) {}
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Đã gửi yêu cầu chỉnh sửa tới Tổ chức!', 'info');
+        syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể gửi yêu cầu chỉnh sửa.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi gửi yêu cầu chỉnh sửa.', 'error');
+    }
   };
 
   const deleteActivityByAdmin = async (activityId) => {
     try {
-      await fetch(`${API_BASE}/activities/${activityId}`, { method: 'DELETE' });
-      showToast('Đã gỡ bỏ hoạt động khỏi hệ thống.', 'info');
-      syncWithBackend();
-    } catch (e) {}
+      const res = await apiFetch(`/activities/${activityId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Đã gỡ bỏ hoạt động khỏi hệ thống.', 'info');
+        syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể gỡ bỏ hoạt động.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi gỡ bỏ hoạt động.', 'error');
+    }
   };
 
   // Categories & Locations
   const addCategory = async (name, icon, description) => {
     try {
-      await fetch(`${API_BASE}/categories`, {
+      const res = await apiFetch('/categories', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, icon, description })
       });
-      showToast(`Đã thêm danh mục: "${name}"`, 'success');
-      syncWithBackend();
-    } catch (e) {}
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`Đã thêm danh mục: "${name}"`, 'success');
+        syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể thêm danh mục.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi thêm danh mục.', 'error');
+    }
   };
 
   const deleteCategory = async (id) => {
     try {
-      const res = await fetch(`${API_BASE}/categories/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/categories/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        alert(data.error || 'Không thể xóa danh mục!');
+        showToast(data.error || 'Không thể xóa danh mục!', 'error');
         return;
       }
       showToast('Đã xóa danh mục thành công.', 'info');
       syncWithBackend();
-    } catch (e) {}
+    } catch {
+      showToast('Lỗi máy chủ khi xóa danh mục.', 'error');
+    }
   };
 
   const addLocation = async (name, code) => {
     try {
-      await fetch(`${API_BASE}/locations`, {
+      const res = await apiFetch('/locations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, code })
       });
-      showToast(`Đã thêm địa điểm "${name}"`, 'success');
-      syncWithBackend();
-    } catch (e) {}
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`Đã thêm địa điểm "${name}"`, 'success');
+        syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể thêm địa điểm.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi thêm địa điểm.', 'error');
+    }
   };
 
   const deleteLocation = async (id) => {
     try {
-      const res = await fetch(`${API_BASE}/locations/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/locations/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        alert(data.error || 'Không thể xóa địa điểm!');
+        showToast(data.error || 'Không thể xóa địa điểm!', 'error');
         return;
       }
       showToast('Đã xóa địa điểm thành công.', 'info');
       syncWithBackend();
-    } catch (e) {}
+    } catch {
+      showToast('Lỗi máy chủ khi xóa địa điểm.', 'error');
+    }
   };
 
   // System Broadcast & Notices
   const sendSystemBroadcast = async (targetGroup, title, message) => {
     try {
-      const res = await fetch(`${API_BASE}/notifications/broadcast`, {
+      const res = await apiFetch('/notifications/broadcast', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetGroup, title, message })
       });
       const data = await res.json();
       if (res.ok && data.success) {
         showToast(`Đã phát thông báo hệ thống tới ${data.count} người dùng!`, 'success');
         syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể phát thông báo hệ thống.', 'error');
       }
-    } catch (e) {}
+    } catch {
+      showToast('Lỗi máy chủ khi phát thông báo.', 'error');
+    }
   };
 
   const sendActivityNotificationToVolunteers = async (activityId, title, message) => {
     try {
-      const res = await fetch(`${API_BASE}/notifications/send-activity`, {
+      const res = await apiFetch('/notifications/send-activity', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ activityId, title, message })
       });
       const data = await res.json();
       if (res.ok && data.success) {
         showToast(`Đã gửi thông báo đến ${data.count} tình nguyện viên!`, 'success');
         syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể gửi thông báo.', 'error');
       }
-    } catch (e) {}
+    } catch {
+      showToast('Lỗi máy chủ khi gửi thông báo.', 'error');
+    }
   };
 
   const updateSystemSettings = async (newSettings) => {
     try {
-      await fetch(`${API_BASE}/settings`, {
+      const res = await apiFetch('/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newSettings)
       });
-      showToast('Đã lưu cấu hình tham số hệ thống!', 'success');
-      syncWithBackend();
-    } catch (e) {}
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Đã lưu cấu hình tham số hệ thống!', 'success');
+        syncWithBackend();
+      } else {
+        showToast(data.error || 'Không thể lưu cấu hình.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi lưu cấu hình.', 'error');
+    }
   };
 
   const updateVolunteerProfile = async (id, data) => {
     try {
-      await fetch(`${API_BASE}/volunteers/${id}`, {
+      const res = await apiFetch(`/volunteers/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-      showToast('Đã cập nhật hồ sơ cá nhân thành công!', 'success');
-      syncWithBackend();
-    } catch (e) {}
+      const resData = await res.json();
+      if (res.ok && resData.success) {
+        showToast('Đã cập nhật hồ sơ cá nhân thành công!', 'success');
+        syncWithBackend();
+      } else {
+        showToast(resData.error || 'Không thể cập nhật hồ sơ.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi cập nhật hồ sơ.', 'error');
+    }
   };
 
   const updateOrgProfile = async (id, data) => {
     try {
-      await fetch(`${API_BASE}/organizations/${id}`, {
+      const res = await apiFetch(`/organizations/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-      showToast('Đã cập nhật thông tin tổ chức thành công!', 'success');
-      syncWithBackend();
-    } catch (e) {}
+      const resData = await res.json();
+      if (res.ok && resData.success) {
+        showToast('Đã cập nhật thông tin tổ chức thành công!', 'success');
+        syncWithBackend();
+      } else {
+        showToast(resData.error || 'Không thể cập nhật thông tin tổ chức.', 'error');
+      }
+    } catch {
+      showToast('Lỗi máy chủ khi cập nhật thông tin tổ chức.', 'error');
+    }
+  };
+
+  const resolveFeedback = async (id, adminNote = '') => {
+    try {
+      const res = await apiFetch(`/feedbacks/${id}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({ adminNote })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setFeedbacks((prev) => prev.map((f) => (f.id === id ? data.feedback : f)));
+        showToast('Đã đánh dấu xử lý phản hồi và gửi thông báo tới người dùng!', 'success');
+        syncWithBackend();
+        return { success: true };
+      }
+      showToast(data.error || 'Không thể xử lý phản hồi.', 'error');
+      return { success: false, error: data.error };
+    } catch {
+      showToast('Lỗi máy chủ khi xử lý phản hồi.', 'error');
+      return { success: false };
+    }
   };
 
   const resetToInitialData = async () => {
-    if (window.confirm('Bạn có chắc chắn muốn đặt lại toàn bộ dữ liệu mẫu ban đầu của hệ thống trên máy chủ?')) {
-      try {
-        await fetch(`${API_BASE}/system/reset`, { method: 'POST' });
-      } catch (e) {}
-      localStorage.clear();
+    try {
+      const res = await apiFetch('/system/reset', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showToast(data.error || 'Chỉ Quản trị viên mới có thể đặt lại dữ liệu hệ thống.', 'error');
+        return { success: false };
+      }
       await syncWithBackend();
-      setUserRole('volunteer');
-      setCurrentUser(initialVolunteers[0]);
+      if (userRole !== 'admin') {
+        setSession('guest', null, '');
+      }
       showToast('Đã khôi phục toàn bộ dữ liệu mẫu ban đầu trên Backend và Frontend!', 'info');
+      return { success: true };
+    } catch {
+      showToast('Lỗi máy chủ khi khôi phục dữ liệu.', 'error');
+      return { success: false };
     }
   };
 
@@ -836,11 +980,13 @@ export const AppProvider = ({ children }) => {
 
         setUserRole,
         setCurrentUser,
-        quickSwitchUser,
+        setSession,
+        setVolunteers,
+        setOrganizations,
+        syncWithBackend,
         login,
         logout,
-        registerVolunteer,
-        registerOrganization,
+        changePassword,
         showToast,
         removeToast,
         markNotificationAsRead,
@@ -863,6 +1009,7 @@ export const AppProvider = ({ children }) => {
         submitActivityReview,
         submitVolunteerEvaluation,
         submitFeedback,
+        resolveFeedback,
 
         approveUser,
         rejectUser,
@@ -888,10 +1035,4 @@ export const AppProvider = ({ children }) => {
       {children}
     </AppContext.Provider>
   );
-};
-
-export const useApp = () => {
-  const context = useContext(AppContext);
-  if (!context) throw new Error('useApp must be used within an AppProvider');
-  return context;
 };
